@@ -1,12 +1,12 @@
-#sc88sysex 
+# sc88sysex 
 sc88sysex is a Roland SC-88 System Exclusive Librarian, written as a Bash script for Linux.
 
 Edit and run the provided script install.sh to install it. This script needs bash, amidi (from the ALSA utilities) and a few other command line utilities.
 
-##Usage:
+## Usage:
        sc88sysex [-v] [-h] [-p PORT] [-d DEVICEID] [-t TIMEOUT] {-a ADDRESS -z SIZE | -c COMMAND} [-r|-s FILENAME]
 
-##OPTIONS
+## OPTIONS
        -h     Prints a help message.
 
        -v     Prints more verbose messages.
@@ -39,7 +39,7 @@ Edit and run the provided script install.sh to install it. This script needs bas
        -s FILE
               Sends the contents of this file name.
             
-##FILES
+## FILES
         ~/.sc88sysexrc 
             personal configuration
 
@@ -56,7 +56,7 @@ Edit and run the provided script install.sh to install it. This script needs bas
         TIMEOUT=3          (Timeout: 3 seconds)
         LIBDIR=~/SC88LIB   (Library directory: $HOME/SC88LIB)
 
-##Examples:
+## Examples:
         sc88sysex -a BULKDUMP -z ALL
             Sends a bulk dump request using the default  MIDI  port  to  the 
             SC-88,  and stores the received data in a file named 
