@@ -1,0 +1,218 @@
+#!/bin/bash
+#-------------------------------------------------------------------------------
+# System exclusive librarian for Roland SC-88 
+#
+# Copyright (c) 2004-2020 Pedro Lopez-Cabanillas <plcl@users.sourceforge.net>
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, see <https://www.gnu.org/licenses/>.
+#
+#-------------------------------------------------------------------------------
+USAGE="Usage:\n\t$(basename $0) [-v] [-h] [-p PORT] [-d DEVICEID] [-t TIMEOUT]\n\t\t{-a ADDRESS -z SIZE | -c COMMAND} [-r|-s FILENAME]\n"
+ACTION=receive
+
+# Configuration section
+MIDIPORT="hw:0"
+DEVICEID=10
+TIMEOUT=3
+LIBDIR=~/SC88LIB
+
+# Address definitions
+SC88A_BULKDUMP="0c 00 00"
+SC88A_INTSNDLST="0c 00 01"
+SC88A_INTDRMLST="0c 00 02"
+SC88A_INTDRINST="0c 00 03"
+
+# Size definitions
+SC88S_ALL="00 00 00"
+SC88S_ALL1="00 00 01"
+SC88S_ALL2="00 00 02"
+SC88S_SC55="00 00 01"
+SC88S_SC88="00 00 02"
+SC88S_GS1="00 00 10"
+SC88S_GS2="00 00 11"
+SC88S_TONEBANKS="00 01 00"
+SC88S_TONEBANK64="00 01 40"
+SC88S_TONEBANK65="00 01 41"
+SC88S_DRUMSETS="00 02 00"
+SC88S_DRUMSET64="00 02 40"
+SC88S_DRUMSET65="00 02 41"
+
+# Standard and predefined SYSX commands
+SC88C_GMRESET="f07e7f0901f7"
+SC88C_GSRESET="40 00 7f 00"
+SC88C_MODE1="00 00 7f 00"
+SC88C_MODE2="00 00 7f 01"
+
+if [ -r ~/.sc88sysexrc ]; then
+    . ~/.sc88sysexrc
+else 
+    if [ -r /etc/sc88sysexrc ]; then
+	. /etc/sc88sysexrc
+    fi
+fi
+
+function help() {
+    echo -e $USAGE
+    echo -e "Version: 0.1"
+    echo -ne "Named dump types (-a ADDRESS): \n\t"
+    echo ${!SC88A_*}|sed 's/SC88A_//g'
+    echo -ne "Named dump sizes (-z SIZE): \n\t"
+    echo ${!SC88S_*}|sed 's/SC88S_//g'
+    echo -ne "Named commands (-c COMMAND): \n\t"
+    echo ${!SC88C_*}|sed 's/SC88C_//g'
+    echo -e "Default configuration:"
+    echo -e "\tMIDI Port: $MIDIPORT"
+    echo -e "\tDevice ID: $DEVICEID"
+    echo -e "\tTimeout: $TIMEOUT"
+    echo -e "\tLibrary directory: $LIBDIR"
+    exit 1
+}
+
+function validate() {
+    local X
+    while [ $# -gt 0 ]; do
+	X=$(echo $1|sed 's/[0-9,a-f,A-F]//g')
+	if [ $X ]; then
+	    echo "Wrong argument: $1"
+	    exit 1
+	fi
+	shift
+    done
+}
+
+function calcsum() {
+    local S=0
+    while [ $# -gt 0 ]; do
+	let "S+=0x$1"
+	shift
+    done
+    printf "%02x" $((-S & 0x7f))
+}
+
+function concat() {
+    while [ $# -gt 0 ]; do
+	echo -n $1
+	shift
+    done
+}
+
+function buildRQ1() {
+    local SUM=$(calcsum $1 $2 $3 $4 $5 $6)
+    echo "f041${DEVICEID}4211${1}${2}${3}${4}${5}${6}${SUM}f7"
+}
+
+function buildDT1() {
+    local SUM=$(calcsum $@)
+    local CMD=$(concat $@)
+    echo "f041${DEVICEID}4212${CMD}${SUM}f7"
+}
+
+function receiver() {
+    local RQ1=$(buildRQ1 $1 $2 $3 $4 $5 $6)
+    if [ "x$FILENAME" == "x" ]; then
+        FILENAME=$(echo "SC88_${ADDRVAR}_${SIZEVAR}.SYX"|sed 's/\ //g'|tr [:upper:] [:lower:])
+    fi
+    if [ $VERBOSE ]; then
+        echo "Request: $RQ1 File: $FILENAME"
+    fi
+    amidi -p $MIDIPORT -S $RQ1 -t $TIMEOUT -r $LIBDIR/$FILENAME
+}
+
+function sender() {
+    if [ "x$FILENAME" == "x" ]; then
+	local DT1
+	local FB=${1:0:2}
+	if [ $FB == "f0" ]; then
+	    DT1=$@
+	else
+	    DT1=$(buildDT1 $@)
+	fi
+        if [ $VERBOSE ]; then
+	    echo "Sending sysx: $DT1"
+        fi
+	amidi -p $MIDIPORT -S $DT1
+    else
+        if [ $VERBOSE ]; then
+	    echo "Sending file: $FILENAME"
+        fi
+	amidi -p $MIDIPORT -s $LIBDIR/$FILENAME
+    fi
+}
+
+#----------------------------------------------------------------------
+#
+# main()
+
+while getopts ":p:d:t:a:z:r:s:c:hv" options; do
+    case $options in
+	p ) MIDIPORT=$OPTARG
+	    ;;
+	d ) DEVICEID=$OPTARG
+	    ;;
+	t ) TIMEOUT=$OPTARG
+	    ;;
+	a ) ADDRVAR=$OPTARG
+	    ;;
+	z ) SIZEVAR=$OPTARG
+	    ;;
+	r ) FILENAME=$OPTARG
+	    ACTION=receive
+	    ;;
+	s ) FILENAME=$OPTARG
+	    ACTION=send
+	    ;;
+	c ) COMMAND=$OPTARG
+	    ACTION=send
+	    ;;
+	v ) VERBOSE=1
+	    ;;
+	h ) help
+	    ;;
+    esac
+done
+
+if [ $ACTION == "receive" ]; then
+    if [ "x$ADDRVAR" == "x" ]; then
+        echo "The address argument is mandatory"
+	help
+    fi
+    A="SC88A_$ADDRVAR"
+    if [ "x${!A}" == "x" ]; then
+	A=$ADDRVAR
+	validate $A
+    else
+	A=${!A}
+    fi
+    if [ "x$SIZEVAR" == "x" ]; then
+	echo "The size argument is mandatory"
+        help
+    fi
+    S="SC88S_$SIZEVAR"
+    if [ "x${!S}" == "x" ]; then
+	S=$SIZEVAR
+	validate $S
+    else
+	S=${!S}
+    fi
+    receiver $A $S
+else
+    C="SC88C_$COMMAND"
+    if [ "x${!C}" == "x" ]; then
+	C=$COMMAND
+	validate $C
+    else
+	C=${!C}
+    fi
+    sender $C
+fi
